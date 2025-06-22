@@ -1,0 +1,7 @@
+
+flask
+kiteconnect
+scikit-learn
+xgboost
+joblib
+requests

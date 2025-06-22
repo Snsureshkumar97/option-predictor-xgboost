@@ -1,0 +1,37 @@
+
+//@version=5
+indicator("Smart Option King AI – Option Premium Targets", overlay=true)
+strike_name = input.string("49700 CE", "Strike Name")
+entry_price = input.float(122.0, "Entry Price")
+stop_loss = input.float(108.0, "Stop Loss")
+target1 = input.float(138.0, "Target 1")
+target2 = input.float(156.0, "Target 2")
+target3 = input.float(168.0, "Target 3")
+confidence = input.string("96%", "Confidence")
+ai_reason = input.string("EMA + RSI + MACD + Volume", "Reason")
+direction = input.string("BUY", options=["BUY", "SELL"])
+show_labels = input.bool(true, "Show Info")
+
+plot(direction == "BUY" ? entry_price : na, "Entry", color=color.blue)
+plot(direction == "BUY" ? stop_loss : na, "SL", color=color.red)
+plot(direction == "BUY" ? target1 : na, "T1", color=color.green)
+plot(direction == "BUY" ? target2 : na, "T2", color=color.green)
+plot(direction == "BUY" ? target3 : na, "T3", color=color.green)
+
+plot(direction == "SELL" ? entry_price : na, "Entry", color=color.blue)
+plot(direction == "SELL" ? stop_loss : na, "SL", color=color.red)
+plot(direction == "SELL" ? target1 : na, "T1", color=color.green)
+plot(direction == "SELL" ? target2 : na, "T2", color=color.green)
+plot(direction == "SELL" ? target3 : na, "T3", color=color.green)
+
+if show_labels
+    label.new(bar_index, high,
+     "STRIKE: " + strike_name + 
+     "\nENTRY: ₹" + str.tostring(entry_price) +
+     "\nSL: ₹" + str.tostring(stop_loss) +
+     "\nT1: ₹" + str.tostring(target1) +
+     "\nT2: ₹" + str.tostring(target2) +
+     "\nT3: ₹" + str.tostring(target3) +
+     "\nConfidence: " + confidence +
+     "\nReason: " + ai_reason,
+     style=label.style_label_up, color=color.green, textcolor=color.white)
