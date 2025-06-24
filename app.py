@@ -1,51 +1,84 @@
 
-from flask import Flask, request, jsonify
 import os
+from flask import Flask, request, jsonify
+from kiteconnect import KiteConnect
 import datetime
 
-# Initialize the Flask app
 app = Flask(__name__)
 
-# Webhook endpoint to receive TradingView alerts
-@app.route("/webhook", methods=["POST"])
-def webhook():
+# === Load credentials from Render environment variables ===
+kite_api_key = os.environ.get("w2v7z50yd1kfrj9m")
+kite_api_secret = os.environ.get("7f2litnjzyo7k764qelgrejaploaoahh")
+access_token = os.environ.get("tjr3Zrwcx48PESt7ZNqiLwExqHIgWxqa")
+
+kite = KiteConnect(api_key=kite_api_key)
+kite.set_access_token(access_token)
+
+# === Utility: Round to nearest strike (e.g., 50-point intervals) ===
+def get_atm_strike(ltp, step=50):
+    return round(ltp / step) * step
+
+# === Fetch option LTP ===
+def fetch_option_ltp(symbol):
     try:
-        data = request.get_json()
-        print("Received alert:", data)
+        data = kite.ltp([symbol])
+        return data[symbol]['last_price']
+    except:
+        return None
 
-        # Extract relevant fields from TradingView alert
-        symbol = data.get("symbol")
-        direction = data.get("direction")  # e.g., "buy" or "sell"
-        price = float(data.get("price", 0))
-        time = data.get("time")
+# === Webhook endpoint for TradingView alerts ===
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    index_name = data.get("index", "NIFTY")
+    direction = data.get("signal", "BUY")  # "BUY" for CE, "SELL" for PE
 
-        # Dummy example logic (replace with your actual strike prediction logic)
-        prediction = {
-            "symbol": symbol,
-            "direction": direction,
-            "strike": round(price),
-            "entry_price": price,
-            "T1": round(price * 1.02, 2),
-            "T2": round(price * 1.04, 2),
-            "T3": round(price * 1.06, 2),
-            "SL": round(price * 0.98, 2),
-            "time": time
-        }
+    # === Expiry (nearest weekly expiry - Thursday) ===
+    today = datetime.date.today()
+    weekday = today.weekday()
+    days_to_thursday = (3 - weekday) % 7
+    expiry = today + datetime.timedelta(days=days_to_thursday)
 
-        print("Generated prediction:", prediction)
-
-        return jsonify({"status": "success", "prediction": prediction}), 200
-
+    # === Get index LTP and calculate ATM strike
+    try:
+        index_ltp = kite.ltp(f"NSE:{index_name}")[f"NSE:{index_name}"]['last_price']
     except Exception as e:
-        print("Webhook error:", e)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"error": f"Failed to fetch index LTP: {e}"}), 400
 
-# Basic route to check server status
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ Smart Option Predictor is live!", 200
+    atm_strike = get_atm_strike(index_ltp)
+    option_type = "CE" if direction == "BUY" else "PE"
 
-# Run the app (only if running locally; Render uses gunicorn)
+    # === Construct option symbol
+    expiry_str = expiry.strftime('%y%b').upper()
+    option_symbol = f"NSE:{index_name}{expiry_str}{atm_strike}{option_type}"
+
+    option_ltp = fetch_option_ltp(option_symbol)
+    if option_ltp is None:
+        return jsonify({"error": "Failed to fetch option LTP"}), 400
+
+    # === Targets and Stop Loss
+    T1 = round(option_ltp + 10, 2)
+    T2 = round(option_ltp + 20, 2)
+    T3 = round(option_ltp + 30, 2)
+    SL = round(option_ltp * 0.75, 2)
+
+    # === Final JSON response
+    response = {
+        "signal": direction,
+        "index_ltp": round(index_ltp, 2),
+        "strike": atm_strike,
+        "option_type": option_type,
+        "option_symbol": option_symbol,
+        "option_ltp": round(option_ltp, 2),
+        "expiry": expiry.strftime("%d-%b-%Y"),
+        "T1": T1,
+        "T2": T2,
+        "T3": T3,
+        "SL": SL
+    }
+
+    print("Webhook Signal:", response)
+    return jsonify(response)
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=8080)
